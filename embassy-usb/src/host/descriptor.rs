@@ -155,12 +155,13 @@ impl USBDescriptor for ConfigurationDescriptor {
         if bytes[1] != Self::DESC_TYPE {
             return Err(());
         }
+        let descr_len = bytes[0];
         let mut buffer = [0u8; 256];
-        let rest_of_desc = &bytes[Self::SIZE..];
+        let rest_of_desc = &bytes[(descr_len as usize)..];
         buffer[..rest_of_desc.len()].copy_from_slice(rest_of_desc);
 
         Ok(Self {
-            len: bytes[0],
+            len: descr_len,
             descriptor_type: bytes[1],
             total_len: u16::from_le_bytes([bytes[2], bytes[3]]),
             num_interfaces: bytes[4],
@@ -219,17 +220,22 @@ impl ConfigurationDescriptor {
                 start = Some(offset);
                 break;
             }
-            dest_buffer = &dest_buffer[offset + InterfaceDescriptor::SIZE..];
+            let interface_size = dest_buffer[offset] as usize;
+            dest_buffer = &dest_buffer[offset + interface_size..];
         }
 
         // start is relative to current dest_buffer.
         let Some(start) = start else { return None };
 
-        // Find next interface if any
-        let next_interface_buffer = &dest_buffer[start + InterfaceDescriptor::SIZE..];
+        // Find next interface if any.
+        // The interface descriptor that we're extracting will include
+        // bytes up to the next interface descriptor or the end of the buffer.
+        // Those bytes include things like endpoint descriptors.
+        let interface_size = dest_buffer[start] as usize;
+        let next_interface_buffer = &dest_buffer[start + interface_size..];
 
         let interface_bytes = if let Some((offset, _)) = Self::identify_interface(next_interface_buffer) {
-            let end = start + InterfaceDescriptor::SIZE + offset;
+            let end = start + interface_size + offset;
             &dest_buffer[start..end]
         } else {
             &dest_buffer[start..]
@@ -240,7 +246,7 @@ impl ConfigurationDescriptor {
 
     fn buffer_sliced(&self) -> &[u8] {
         // The confiuration descriptor's own bytes are already consumed.
-        let end = self.total_len as usize - Self::SIZE;
+        let end = self.total_len as usize - self.len as usize;
         &self.buffer[..end]
     }
 
@@ -250,16 +256,22 @@ impl ConfigurationDescriptor {
         let mut desc_len = slice[offset] as usize;
         let mut desc_type = slice[offset + 1];
 
-        while desc_type != InterfaceDescriptor::DESC_TYPE || desc_len != InterfaceDescriptor::SIZE {
+        while desc_type != InterfaceDescriptor::DESC_TYPE || desc_len < InterfaceDescriptor::SIZE {
             // 'flush' buffer until end of descriptor
-            offset += desc_len.max(1); // at least 1 byute to prevent infinite loop
-            if offset + InterfaceDescriptor::SIZE > slice.len() {
+            offset += desc_len.max(1); // at least 1 byte to prevent infinite loop
+
+            // Make sure it's safe to read the next len and type.
+            if offset + 1 >= slice.len() {
                 // end of slice
                 return None;
             }
-
             desc_len = slice[offset] as usize;
             desc_type = slice[offset + 1];
+
+            if offset + desc_len > slice.len() {
+                // end of slice
+                return None;
+            }
         }
 
         let interface_number = slice[offset + 2];
@@ -287,7 +299,7 @@ impl<'a> Iterator for EndpointIterator<'a> {
                     EndpointDescriptor::try_from_bytes(working_buffer).ok()
                 })
             {
-                self.buffer_idx += EndpointDescriptor::SIZE;
+                self.buffer_idx += endpoint.len as usize;
                 self.index += 1;
                 return Some(endpoint);
             }
@@ -310,8 +322,9 @@ impl<'a> InterfaceDescriptor<'a> {
         if bytes[1] != Self::DESC_TYPE {
             return Err(());
         }
+        let descr_len = bytes[0];
         Ok(Self {
-            len: bytes[0],
+            len: descr_len,
             descriptor_type: bytes[1],
             interface_number: bytes[2],
             alternate_setting: bytes[3],
@@ -320,7 +333,7 @@ impl<'a> InterfaceDescriptor<'a> {
             interface_subclass: bytes[6],
             interface_protocol: bytes[7],
             interface_name: bytes[8],
-            buffer: &bytes[Self::SIZE..],
+            buffer: &bytes[descr_len as usize..],
         })
     }
 
@@ -351,10 +364,20 @@ impl<'a> InterfaceDescriptor<'a> {
             }) {
                 // safe because we limited the iterations.
                 endpoints.push(endpoint).ok();
+                working_buffer = match working_buffer.get((endpoint.len as usize)..) {
+                    Some(slice) => slice,
+                    None => return endpoints,
+                };
+            } else {
+                if working_buffer.len() > 0 {
+                    let descr_len = working_buffer[0] as usize;
+                    working_buffer = match working_buffer.get(descr_len..) {
+                        Some(slice) => slice,
+                        None => return endpoints,
+                    }
+                }
             }
-            working_buffer = &working_buffer[EndpointDescriptor::SIZE..];
         }
-
         endpoints
     }
 
@@ -364,16 +387,22 @@ impl<'a> InterfaceDescriptor<'a> {
         let mut desc_len = slice[offset] as usize;
         let mut desc_type = slice[offset + 1];
 
-        while desc_type != T::DESC_TYPE || desc_len != T::SIZE {
+        while desc_type != T::DESC_TYPE || desc_len < T::SIZE {
             // 'flush' buffer until end of descriptor
-            offset += desc_len.max(1); // at least 1 byute to prevent infinite loop
-            if offset + T::SIZE > slice.len() {
+            offset += desc_len.max(1); // at least 1 byte to prevent infinite loop
+
+            // Make sure it's safe to read the next len and type.
+            if offset + 1 >= slice.len() {
                 // end of slice
                 return None;
             }
-
             desc_len = slice[offset] as usize;
             desc_type = slice[offset + 1];
+
+            if offset + desc_len > slice.len() {
+                // end of slice
+                return None;
+            }
         }
 
         Some(offset)
@@ -528,6 +557,54 @@ mod test {
         let endpoints = interface1.parse_endpoints::<2>();
         assert_eq!(endpoints.len(), 2);
     }
+
+    #[test]
+    fn test_parse_extended_endpoint_descriptor() {
+        // This configuration descriptor has 2 HID interfaces with HID descriptors
+        // The first endpoint descriptor is extended with 2 bytes such as seen in the MIDI 2.0
+        // bRefresh, bSynchAddress (those two bytes are set to 99 in the test bytes below to make them easy to identify).
+        let desc_bytes = [
+            // Configuration descriptor
+            9, 2, 68, 0, 2, 1, 0, 160, 101,
+            // Interface 0
+            9, 4, 0, 0, 1, 3, 1, 1, 0,
+            // HID Descriptor
+            9, 33, 16, 1, 0, 1, 34, 63, 0,
+            // Endpoint 1 (extended for MIDI 2.0)
+            9, 5, 129, 3, 8, 0, 1, 99, 99,
+            // Interface 1
+            9, 4, 1, 0, 2, 3, 1, 0, 0,
+            // HID Descriptor
+            9, 33, 16, 1, 0, 1, 34, 39, 0,
+            // Endpoint 1
+            7, 5, 131, 3, 64, 0, 1,
+            // Endpoint 2
+            7, 5, 3, 3, 64, 0, 1,
+        ];
+
+        let cfg = ConfigurationDescriptor::try_from_bytes(desc_bytes.as_slice()).unwrap();
+        assert_eq!(cfg.num_interfaces, 2);
+
+        let interface0 = cfg.parse_interface(0).unwrap();
+        assert_eq!(interface0.interface_number, 0);
+
+        assert_eq!(interface0.num_endpoints, 1);
+
+        let endpoints = interface0.parse_endpoints::<2>();
+        assert_eq!(endpoints.len(), 1);
+
+        let ep = endpoints[0];
+        assert_eq!(ep.endpoint_address, 0x81);
+        assert_eq!(ep.max_packet_size, 8);
+
+        let interface1 = cfg.parse_interface(1).unwrap();
+        assert_eq!(interface1.interface_number, 1);
+        assert_eq!(interface1.num_endpoints, 2);
+
+        let endpoints = interface1.parse_endpoints::<2>();
+        assert_eq!(endpoints.len(), 2);
+    }
+
 
     #[test]
     fn test_parse_custom_descriptor() {
