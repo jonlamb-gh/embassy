@@ -1,7 +1,7 @@
 #![no_std]
 #![allow(async_fn_in_trait)]
 #![doc = include_str!("../README.md")]
-#![warn(missing_docs)]
+#![allow(missing_docs, async_fn_in_trait)]
 
 pub mod host;
 
