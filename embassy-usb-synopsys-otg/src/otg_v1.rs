@@ -334,7 +334,10 @@ impl Otg {
     #[doc = "Host channel DMA address register (addr buffer for current transfer; used to debug ddma)"]
     #[inline(always)]
     pub const fn hcdmab(self, n: usize) -> Reg<u32, RW> {
-        assert!(n < 12usize);
+        // TODO
+        // https://github.com/embassy-rs/embassy/issues/3492
+        //assert!(n < 12usize);
+        ::core::assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x051cusize + n * 32usize) as _) }
     }
     #[doc = "Device configuration register"]

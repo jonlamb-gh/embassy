@@ -119,8 +119,7 @@ defmt = [
     "embassy-usb-driver/defmt",
     "embassy-net-driver/defmt",
     "embassy-time?/defmt",
-    # https://github.com/embassy-rs/embassy/issues/3492
-    #"embassy-usb-synopsys-otg/defmt",
+    "embassy-usb-synopsys-otg/defmt",
 ]
 
 exti = []
