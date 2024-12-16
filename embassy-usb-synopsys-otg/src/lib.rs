@@ -310,12 +310,12 @@ impl Default for Config {
 
 /// USB OTG driver.
 pub struct Driver<'d, const MAX_EP_COUNT: usize> {
-    config: Config,
-    ep_in: [Option<EndpointData>; MAX_EP_COUNT],
-    ep_out: [Option<EndpointData>; MAX_EP_COUNT],
-    ep_out_buffer: &'d mut [u8],
-    ep_out_buffer_offset: usize,
-    instance: OtgInstance<'d, MAX_EP_COUNT>,
+    pub config: Config,
+    pub ep_in: [Option<EndpointData>; MAX_EP_COUNT],
+    pub ep_out: [Option<EndpointData>; MAX_EP_COUNT],
+    pub ep_out_buffer: &'d mut [u8],
+    pub ep_out_buffer_offset: usize,
+    pub instance: OtgInstance<'d, MAX_EP_COUNT>,
 }
 
 impl<'d, const MAX_EP_COUNT: usize> Driver<'d, MAX_EP_COUNT> {

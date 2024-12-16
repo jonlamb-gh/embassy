@@ -53,7 +53,7 @@ const RX_FIFO_EXTRA_SIZE_WORDS: u16 = 30;
 /// USB driver.
 pub struct Driver<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
-    inner: OtgDriver<'d, MAX_EP_COUNT>,
+    pub(crate) inner: OtgDriver<'d, MAX_EP_COUNT>,
 }
 
 impl<'d, T: Instance> Driver<'d, T> {

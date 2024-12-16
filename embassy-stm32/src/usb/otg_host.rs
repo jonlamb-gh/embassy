@@ -12,19 +12,23 @@ use embassy_time::{Duration, Instant, Timer};
 use embassy_usb_driver::host::{channel, ChannelError, DeviceEvent, HostError, UsbChannel, UsbHostDriver};
 use embassy_usb_driver::{EndpointType, Speed};
 use stm32_metapac::common::{Reg, RW};
-use stm32_metapac::usb::regs::Epr;
+//use stm32_metapac::usb::regs::Epr;
 
-use super::{DmPin, DpPin, Instance};
-use crate::pac::usb::regs;
-use crate::pac::usb::vals::{EpType, Stat};
-use crate::pac::USBRAM;
+use crate::usb::{Driver, Instance};
 use crate::{interrupt, Peripheral};
+//use super::{DmPin, DpPin, Instance};
+//use crate::pac::usb::regs;
+//use crate::pac::usb::vals::{EpType, Stat};
+//use crate::pac::USBRAM;
 
 /// The number of registers is 8, allowing up to 16 mono-
 /// directional/single-buffer or up to 7 double-buffer endpoints in any combination. For
 /// example the USB peripheral can be programmed to have 4 double buffer endpoints
 /// and 8 single-buffer/mono-directional endpoints.
 const USB_MAX_PIPES: usize = 8;
+// TODO 16?
+// const FIFO_DEPTH_WORDS: u16 = 1024;
+// const ENDPOINT_COUNT: usize = 9;
 
 /// Interrupt handler.
 pub struct USBHostInterruptHandler<I: Instance> {
@@ -34,71 +38,72 @@ pub struct USBHostInterruptHandler<I: Instance> {
 impl<I: Instance> interrupt::typelevel::Handler<I::Interrupt> for USBHostInterruptHandler<I> {
     unsafe fn on_interrupt() {
         let regs = I::regs();
-        // let x = regs.istr().read().0;
-        // trace!("USB IRQ: {:08x}", x);
+        trace!("USB IRQ");
 
-        let istr = regs.istr().read();
+        /*
+            let istr = regs.istr().read();
 
-        // Detect device connect/disconnect
-        if istr.reset() {
-            trace!("USB IRQ: device connect/disconnect");
+            // Detect device connect/disconnect
+            if istr.reset() {
+                trace!("USB IRQ: device connect/disconnect");
 
-            // Write 0 to clear.
-            let mut clear = regs::Istr(!0);
-            clear.set_reset(false);
-            regs.istr().write_value(clear);
+                // Write 0 to clear.
+                let mut clear = regs::Istr(!0);
+                clear.set_reset(false);
+                regs.istr().write_value(clear);
 
-            // Wake main thread.
-            BUS_WAKER.wake();
-        }
-
-        if istr.ctr() {
-            let index = istr.ep_id() as usize;
-
-            let epr = regs.epr(index).read();
-
-            let mut epr_value = invariant(epr);
-            // Check and clear error flags
-            if epr.err_tx() {
-                epr_value.set_err_tx(false);
-                warn!("err_tx");
+                // Wake main thread.
+                BUS_WAKER.wake();
             }
-            if epr.err_rx() {
-                epr_value.set_err_rx(false);
-                warn!("err_rx");
+
+            if istr.ctr() {
+                let index = istr.ep_id() as usize;
+
+                let epr = regs.epr(index).read();
+
+                let mut epr_value = invariant(epr);
+                // Check and clear error flags
+                if epr.err_tx() {
+                    epr_value.set_err_tx(false);
+                    warn!("err_tx");
+                }
+                if epr.err_rx() {
+                    epr_value.set_err_rx(false);
+                    warn!("err_rx");
+                }
+                // Clear ctr (transaction complete) flags
+                let rx_ready = epr.ctr_rx();
+                let tx_ready = epr.ctr_tx();
+
+                epr_value.set_ctr_rx(!rx_ready);
+                epr_value.set_ctr_tx(!tx_ready);
+                regs.epr(index).write_value(epr_value);
+
+                if rx_ready {
+                    EP_IN_WAKERS[index].wake();
+                }
+                if tx_ready {
+                    EP_OUT_WAKERS[index].wake();
+                }
             }
-            // Clear ctr (transaction complete) flags
-            let rx_ready = epr.ctr_rx();
-            let tx_ready = epr.ctr_tx();
 
-            epr_value.set_ctr_rx(!rx_ready);
-            epr_value.set_ctr_tx(!tx_ready);
-            regs.epr(index).write_value(epr_value);
+            if istr.err() {
+                debug!("USB IRQ: err");
+                regs.istr().write_value(regs::Istr(!0));
 
-            if rx_ready {
-                EP_IN_WAKERS[index].wake();
+                // Write 0 to clear.
+                let mut clear = regs::Istr(!0);
+                clear.set_err(false);
+                regs.istr().write_value(clear);
+
+                let index = istr.ep_id() as usize;
+                let mut epr = invariant(regs.epr(index).read());
+                // Toggle endponit to disabled
+                epr.set_stat_rx(epr.stat_rx());
+                epr.set_stat_tx(epr.stat_tx());
+                regs.epr(index).write_value(epr);
             }
-            if tx_ready {
-                EP_OUT_WAKERS[index].wake();
-            }
-        }
-
-        if istr.err() {
-            debug!("USB IRQ: err");
-            regs.istr().write_value(regs::Istr(!0));
-
-            // Write 0 to clear.
-            let mut clear = regs::Istr(!0);
-            clear.set_err(false);
-            regs.istr().write_value(clear);
-
-            let index = istr.ep_id() as usize;
-            let mut epr = invariant(regs.epr(index).read());
-            // Toggle endponit to disabled
-            epr.set_stat_rx(epr.stat_rx());
-            epr.set_stat_tx(epr.stat_tx());
-            regs.epr(index).write_value(epr);
-        }
+        */
     }
 }
 
@@ -121,6 +126,7 @@ static BUS_WAKER: AtomicWaker = NEW_AW;
 static EP_IN_WAKERS: [AtomicWaker; EP_COUNT] = [NEW_AW; EP_COUNT];
 static EP_OUT_WAKERS: [AtomicWaker; EP_COUNT] = [NEW_AW; EP_COUNT];
 
+/*
 fn convert_type(t: EndpointType) -> EpType {
     match t {
         EndpointType::Bulk => EpType::BULK,
@@ -139,6 +145,7 @@ fn invariant(mut r: regs::Epr) -> regs::Epr {
     r.set_stat_tx(Stat::from_bits(0));
     r
 }
+*/
 
 fn align_len_up(len: u16) -> u16 {
     ((len as usize + USBRAM_ALIGN - 1) / USBRAM_ALIGN * USBRAM_ALIGN) as u16
@@ -158,6 +165,8 @@ fn calc_receive_len_bits(len: u16) -> (u16, u16) {
     }
 }
 
+// TODO
+/*
 #[cfg(any(usbram_32_2048, usbram_32_1024))]
 mod btable {
     use super::*;
@@ -184,6 +193,7 @@ mod btable {
         (USBRAM.mem(index * 2 + 1).read() >> 16) as u16
     }
 }
+*/
 
 // Maybe replace with struct that only knows its index
 struct EndpointBuffer<I: Instance> {
@@ -203,15 +213,18 @@ impl<I: Instance> EndpointBuffer<I> {
 
     fn read(&mut self, buf: &mut [u8]) {
         assert!(buf.len() <= self.len as usize);
+        /*
         for i in 0..(buf.len() + USBRAM_ALIGN - 1) / USBRAM_ALIGN {
             let val = USBRAM.mem(self.addr as usize / USBRAM_ALIGN + i).read();
             let n = USBRAM_ALIGN.min(buf.len() - i * USBRAM_ALIGN);
             buf[i * USBRAM_ALIGN..][..n].copy_from_slice(&val.to_le_bytes()[..n]);
         }
+        */
     }
 
     fn write(&mut self, buf: &[u8]) {
         assert!(buf.len() <= self.len as usize);
+        /*
         for i in 0..(buf.len() + USBRAM_ALIGN - 1) / USBRAM_ALIGN {
             let mut val = [0u8; USBRAM_ALIGN];
             let n = USBRAM_ALIGN.min(buf.len() - i * USBRAM_ALIGN);
@@ -223,6 +236,7 @@ impl<I: Instance> EndpointBuffer<I> {
             let val = u32::from_le_bytes(val);
             USBRAM.mem(self.addr as usize / USBRAM_ALIGN + i).write_value(val);
         }
+        */
     }
 }
 
@@ -233,19 +247,81 @@ static EP_MEM_FREE: AtomicU16 = AtomicU16::new(0);
 
 /// USB host driver.
 pub struct UsbHost<'d, I: Instance> {
-    phantom: PhantomData<&'d mut I>,
+    driver: Driver<'d, I>,
     // first free address in EP mem, in bytes.
     // ep_mem_free: u16,
 }
 
 impl<'d, I: Instance> UsbHost<'d, I> {
-    /// Create a new USB driver.
-    pub fn new(
-        _usb: impl Peripheral<P = I> + 'd,
-        _irq: impl interrupt::typelevel::Binding<I::Interrupt, USBHostInterruptHandler<I>> + 'd,
-        dp: impl Peripheral<P = impl DpPin<I>> + 'd,
-        dm: impl Peripheral<P = impl DmPin<I>> + 'd,
-    ) -> Self {
+    /// Create a new USB Host driver.
+    pub fn new(driver: Driver<'d, I>) -> Self {
+        // TODO
+        //
+        // take a embassy-stm32/src/usb/otg.rs Driver
+        // instead, does the new_fs_ulpi setup
+        //
+        // do the stuff like in embassy-stm32/src/usb/otg.rs Bus::init 266
+
+        super::super::common_init::<I>();
+
+        // Enable ULPI clock if external PHY is used
+        let phy_type = driver.inner.instance.phy_type;
+        let ulpien = !phy_type.internal();
+
+        critical_section::with(|_| {
+            let rcc = crate::pac::RCC;
+            if I::HIGH_SPEED {
+                trace!("Enable HS PHY ULPIEN {}", ulpien);
+                rcc.ahb1enr().modify(|w| w.set_usb_otg_hs_ulpien(ulpien));
+                rcc.ahb1lpenr().modify(|w| w.set_usb_otg_hs_ulpilpen(ulpien));
+            } else {
+                rcc.ahb1enr().modify(|w| w.set_usb_otg_fs_ulpien(ulpien));
+                rcc.ahb1lpenr().modify(|w| w.set_usb_otg_fs_ulpilpen(ulpien));
+            }
+        });
+
+        let r = I::regs();
+        let core_id = r.cid().read().0;
+        trace!("Core id {:08x}", core_id);
+
+        // Wait for AHB ready.
+        while !r.grstctl().read().ahbidl() {}
+
+        // Configure as USB Host.
+        r.gusbcfg().write(|w| {
+            // Force host mode
+            w.set_fhmod(true);
+            // Enable internal full-speed PHY
+            let physel = phy_type.internal() && !phy_type.high_speed();
+            trace!("Configure USB host physel={}", physel);
+            w.set_physel(physel);
+        });
+
+        // Configuring Vbus sense and SOF output
+        // Core id 00002300 -> config_v2v3
+
+        // F446-like chips have the GCCFG.VBDEN bit with the opposite meaning
+        r.gccfg_v2().modify(|w| {
+            // Enable internal full-speed PHY, logic is inverted
+            w.set_pwrdwn(phy_type.internal() && !phy_type.high_speed());
+            w.set_phyhsen(phy_type.internal() && phy_type.high_speed());
+        });
+
+        r.gccfg_v2().modify(|w| {
+            w.set_vbden(driver.inner.config.vbus_detection);
+        });
+
+        // Force B-peripheral session
+        // TODO check this
+        /*
+        r.gotgctl().modify(|w| {
+            w.set_bvaloen(!self.config.vbus_detection);
+            w.set_bvaloval(true);
+        });
+        */
+
+        Self { driver }
+        /*
         into_ref!(dp, dm);
 
         super::super::common_init::<I>();
@@ -285,10 +361,12 @@ impl<'d, I: Instance> UsbHost<'d, I> {
             // channels_used: 0,
             // channels_out_used: 0,
         }
+        */
     }
 
     /// Start the USB peripheral
     pub fn start(&mut self) {
+        /*
         let regs = I::regs();
 
         regs.cntr().write(|w| {
@@ -309,17 +387,22 @@ impl<'d, I: Instance> UsbHost<'d, I> {
 
         #[cfg(stm32l1)]
         crate::pac::SYSCFG.pmc().modify(|w| w.set_usb_pu(true));
+        */
     }
 
     pub fn get_status(&self) -> u32 {
+        /*
         let regs = I::regs();
 
         let istr = regs.istr().read();
 
         istr.0
+        */
+        todo!()
     }
 
     fn alloc_channel_mem(&self, len: u16) -> Result<u16, ()> {
+        /*
         assert!(len as usize % USBRAM_ALIGN == 0);
         let addr = EP_MEM_FREE.load(Ordering::Relaxed);
         if addr + len > USBRAM_SIZE as _ {
@@ -329,9 +412,12 @@ impl<'d, I: Instance> UsbHost<'d, I> {
         }
         EP_MEM_FREE.store(addr + len, Ordering::Relaxed);
         Ok(addr)
+        */
+        todo!()
     }
 
     async fn wait_for_device_connect(&self) -> DeviceEvent {
+        /*
         poll_fn(|cx| {
             let istr = I::regs().istr().read();
 
@@ -346,9 +432,12 @@ impl<'d, I: Instance> UsbHost<'d, I> {
             }
         })
         .await
+        */
+        todo!()
     }
 
     async fn wait_for_device_disconnect(&self) -> DeviceEvent {
+        /*
         poll_fn(|cx| {
             let istr = I::regs().istr().read();
 
@@ -362,6 +451,8 @@ impl<'d, I: Instance> UsbHost<'d, I> {
             }
         })
         .await
+        */
+        todo!()
     }
 }
 
@@ -394,11 +485,14 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
         }
     }
 
+    /*
     fn reg(&self) -> Reg<Epr, RW> {
         I::regs().epr(self.index)
     }
+    */
 
     pub fn activate_rx(&mut self) {
+        /*
         let epr = self.reg();
         let epr_val = epr.read();
         let current_stat_rx = epr_val.stat_rx().to_bits();
@@ -408,9 +502,11 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
         let stat_mask = Stat::from_bits(!current_stat_rx & 0x3);
         epr_val.set_stat_rx(stat_mask);
         epr.write_value(epr_val);
+        */
     }
 
     pub fn activate_tx(&mut self) {
+        /*
         let epr = self.reg();
         let epr_val = epr.read();
         let current_stat_tx = epr_val.stat_tx().to_bits();
@@ -420,9 +516,11 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
         let stat_mask = Stat::from_bits(!current_stat_tx & 0x3);
         epr_val.set_stat_tx(stat_mask);
         epr.write_value(epr_val);
+        */
     }
 
     pub fn disable_rx(&mut self) {
+        /*
         let epr = self.reg();
         let epr_val = epr.read();
         let current_stat_rx = epr_val.stat_rx();
@@ -431,9 +529,11 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
         // We want to set it to Disabled (0b00).
         epr_val.set_stat_rx(current_stat_rx);
         epr.write_value(epr_val);
+        */
     }
 
     fn disable_tx(&mut self) {
+        /*
         let epr = self.reg();
         let epr_val = epr.read();
         let current_stat_tx = epr_val.stat_tx();
@@ -442,9 +542,11 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
         // We want to set it to InActive (0b00).
         epr_val.set_stat_tx(current_stat_tx);
         epr.write_value(epr_val);
+        */
     }
 
     fn read_data(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError> {
+        /*
         let index = self.index;
         let rx_len = btable::read_out_len::<I>(index) as usize & 0x3FF;
         trace!("READ DONE, rx_len = {}", rx_len);
@@ -453,17 +555,22 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
         }
         self.buf_in.as_mut().unwrap().read(&mut buf[..rx_len]);
         Ok(rx_len)
+        */
+        todo!()
     }
 
     fn write_data(&mut self, buf: &[u8]) {
+        /*
         let index = self.index;
         if let Some(buf_out) = self.buf_out.as_mut() {
             buf_out.write(buf);
             btable::write_transmit_buffer_descriptor::<I>(index, buf_out.addr, buf.len() as _);
         }
+        */
     }
 
     async fn write(&mut self, buf: &[u8]) -> Result<usize, ChannelError> {
+        /*
         self.write_data(buf);
 
         let index = self.index;
@@ -499,9 +606,12 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
             }
         })
         .await
+        */
+        todo!()
     }
 
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError> {
+        /*
         let index = self.index;
 
         let timeout_ms = 1000;
@@ -558,6 +668,8 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
             }
         })
         .await
+        */
+        todo!()
     }
 }
 
@@ -574,6 +686,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         T: channel::IsControl,
         D: channel::IsIn,
     {
+        /*
         let epr0 = I::regs().epr(0);
 
         // setup stage
@@ -593,6 +706,8 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         self.write(&zero).await?;
 
         Ok(count)
+        */
+        todo!()
     }
 
     async fn control_out(
@@ -604,6 +719,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         T: channel::IsControl,
         D: channel::IsOut,
     {
+        /*
         let epr0 = I::regs().epr(0);
 
         // setup stage
@@ -623,6 +739,8 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         self.read(&mut status).await?;
 
         Ok(buf.len())
+        */
+        todo!()
     }
 
     fn retarget_channel(
@@ -637,6 +755,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
             endpoint.ep_type,
             self.index
         );
+        /*
         let eptype = endpoint.ep_type;
         let index = self.index;
 
@@ -649,6 +768,8 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         epr_reg.write_value(epr);
 
         Ok(())
+        */
+        todo!()
     }
 
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
@@ -686,6 +807,7 @@ impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
         endpoint: &embassy_usb_driver::EndpointInfo,
         pre: bool,
     ) -> Result<Self::Channel<T, D>, embassy_usb_driver::host::HostError> {
+        /*
         let new_index = if T::ep_type() == EndpointType::Control {
             // Only a single control channel is available
             0
@@ -743,12 +865,15 @@ impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
 
         channel.retarget_channel(addr, endpoint, pre)?;
         Ok(channel)
+        */
+        todo!()
     }
 
     async fn bus_reset(&self) {
+        trace!("Bus reset");
+        /*
         let regs = I::regs();
 
-        trace!("Bus reset");
         // Set bus in reset state
         regs.cntr().modify(|w| {
             w.set_fres(true);
@@ -761,6 +886,7 @@ impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
         regs.cntr().modify(|w| {
             w.set_fres(false);
         });
+        */
     }
 
     async fn wait_for_device_event(&self) -> embassy_usb_driver::host::DeviceEvent {
