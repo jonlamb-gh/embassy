@@ -4,6 +4,7 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, Peripheral};
 use embassy_usb_driver::{EndpointAddress, EndpointAllocError, EndpointType, Event, Unsupported};
+pub use embassy_usb_synopsys_otg::host::*;
 use embassy_usb_synopsys_otg::otg_v1::vals::Dspd;
 use embassy_usb_synopsys_otg::otg_v1::Otg;
 pub use embassy_usb_synopsys_otg::Config;

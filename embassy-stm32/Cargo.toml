@@ -196,6 +196,8 @@ split-pc2 = ["_split-pins-enabled"]
 ## Split PC3
 split-pc3 = ["_split-pins-enabled"]
 
+usbhost = ["embassy-usb-synopsys-otg/usbhost"]
+
 ## internal use only
 _split-pins-enabled = []
 

@@ -248,6 +248,9 @@ static EP_MEM_FREE: AtomicU16 = AtomicU16::new(0);
 /// USB host driver.
 pub struct UsbHost<'d, I: Instance> {
     driver: Driver<'d, I>,
+    // TODO
+    // use UsbHostBus embassy-usb-synopsys-otg/src/host.rs ??
+
     // first free address in EP mem, in bytes.
     // ep_mem_free: u16,
 }
