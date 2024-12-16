@@ -29,6 +29,8 @@ impl StaticHandlerSpec {
     }
 }
 
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct EnumerationInfo {
     /// Device address
     pub device_address: u8,

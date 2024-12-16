@@ -190,7 +190,7 @@ impl<'d, T: Instance> Driver<'d, T> {
     /// Endpoint allocation will fail if it is too small.
     pub fn new_hs_ulpi(
         _peri: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, USBHostInterruptHandler<T>> + 'd,
         ulpi_clk: impl Peripheral<P = impl UlpiClkPin<T>> + 'd,
         ulpi_dir: impl Peripheral<P = impl UlpiDirPin<T>> + 'd,
         ulpi_nxt: impl Peripheral<P = impl UlpiNxtPin<T>> + 'd,

@@ -26,7 +26,8 @@ defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
 [features]
-default = []
+default = ['otg-fifo-1024']
 usbhost = ['alloc']
 alloc = []
+otg-fifo-1024 = []
 

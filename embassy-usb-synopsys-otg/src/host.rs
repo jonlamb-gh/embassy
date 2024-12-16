@@ -745,8 +745,13 @@ impl UsbHostBus {
             w.set_fdmod(false); // Deassert device mode
             w.set_srpcap(false);
             w.set_hnpcap(false);
-            w.set_physel(true);
-            w.set_trdt(5); // Maximum
+            //w.set_physel(true); // Internal FS PHY
+            w.set_physel(false); // External HS PHY
+
+            // TODO use calculate_trdt on Driver for this
+            //w.set_trdt(5); // Maximum
+            w.set_trdt(0x9); // see calculate_trdt for HIGH_SPEED
+
             w.set_tocal(7); // Maximum timeout calibration
         });
 
@@ -765,6 +770,17 @@ impl UsbHostBus {
         trace!("Post fifo-init: {}", otg.gintsts().read().0);
 
         // F429-like chips have the GCCFG.NOVBUSSENS bit
+        otg.gccfg_v2().modify(|w| {
+            // Disable internal full-speed PHY, logic is inverted
+            w.set_pwrdwn(false);
+            w.set_phyhsen(true);
+        });
+
+        otg.gccfg_v2().modify(|w| {
+            w.set_vbden(false); // TODO driver.inner.config.vbus_detection
+        });
+
+        /*
         otg.gccfg_v1().modify(|w| {
             // Enable internal full-speed PHY, logic is inverted
             w.set_pwrdwn(true);
@@ -773,6 +789,7 @@ impl UsbHostBus {
             w.set_vbusbsen(false);
             w.set_sofouten(true); // SOF host frames
         });
+        */
 
         otg.pcgcctl().modify(|w| {
             // Disable power down
@@ -799,8 +816,9 @@ impl UsbHostBus {
         });
 
         trace!("Post init: {}", otg.gintsts().read().0);
+
         // Clear all interrupts
-        // otg.gintsts().modify(|w| w.0 &= !(GINTST_RES_MASK));
+        otg.gintsts().modify(|w| w.0 &= !(GINTST_RES_MASK));
 
         bus
     }
