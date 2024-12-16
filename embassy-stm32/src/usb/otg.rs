@@ -1,3 +1,5 @@
+mod otg_host;
+
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, Peripheral};
@@ -14,6 +16,7 @@ use crate::gpio::{AfType, OutputType, Speed};
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::{self, RccPeripheral};
+pub use otg_host::*;
 
 const MAX_EP_COUNT: usize = 9;
 
