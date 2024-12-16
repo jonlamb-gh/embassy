@@ -29,4 +29,4 @@ log = { version = "0.4.14", optional = true }
 default = []
 usbhost = ['alloc']
 alloc = []
-
+otg-fifo-1024 = []

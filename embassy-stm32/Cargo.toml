@@ -122,6 +122,8 @@ defmt = [
     "embassy-usb-synopsys-otg/defmt",
 ]
 
+usbhost = ["embassy-usb-synopsys-otg/usbhost"]
+
 exti = []
 low-power = [ "dep:embassy-executor", "embassy-executor?/arch-cortex-m", "time" ]
 low-power-debug-with-sleep = []
