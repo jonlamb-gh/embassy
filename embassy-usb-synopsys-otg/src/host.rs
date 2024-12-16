@@ -12,7 +12,7 @@ use embassy_usb_driver::{
 };
 
 use crate::otg_v1::{
-    vals::{Dpid, Eptyp},
+    vals::{Dpid, Dspd, Eptyp},
     Otg,
 };
 
@@ -750,6 +750,7 @@ impl UsbHostBus {
 
             // TODO use calculate_trdt on Driver for this
             //w.set_trdt(5); // Maximum
+
             w.set_trdt(0x9); // see calculate_trdt for HIGH_SPEED
 
             w.set_tocal(7); // Maximum timeout calibration
@@ -773,7 +774,7 @@ impl UsbHostBus {
         otg.gccfg_v2().modify(|w| {
             // Disable internal full-speed PHY, logic is inverted
             w.set_pwrdwn(false);
-            w.set_phyhsen(true);
+            //w.set_phyhsen(true); // TODO i don't see this bit in the OTG_GCCFG reg??
         });
 
         otg.gccfg_v2().modify(|w| {
@@ -791,9 +792,30 @@ impl UsbHostBus {
         });
         */
 
+        // TODO this is device mode stuff?
+
+        // Force B-peripheral session
+        otg.gotgctl().modify(|w| {
+            w.set_bvaloen(true); // !self.config.vbus_detection
+            w.set_bvaloval(true);
+        });
+
+        /*
+        // Force A-peripheral session
+        otg.gotgctl().modify(|w| {
+            w.set_avaloen(true); // !self.config.vbus_detection
+            w.set_avaloval(true);
+        });
+        */
+
         otg.pcgcctl().modify(|w| {
             // Disable power down
             w.set_stppclk(false);
+            w.set_gatehclk(false);
+        });
+
+        otg.dcfg().modify(|w| {
+            w.set_dspd(Dspd::HIGH_SPEED); // HS
         });
 
         // Setup core interrupts
@@ -910,6 +932,7 @@ impl UsbHostBus {
 
         let hprt = self.regs.hprt().read();
 
+        // TODO update for HS PHY
         // NOTE: hfir & fslspcs only required for FS/LS PHY
         self.regs.hfir().modify(|w| {
             w.set_rldctrl(true);
@@ -921,13 +944,17 @@ impl UsbHostBus {
         });
         let hcfg = self.regs.hcfg().read();
         if hcfg.fslspcs() != hprt.pspd() {
-            warn!("Changed FSLSPCS, would require bus reset");
+            warn!(
+                "Changed FSLSPCS, would require bus reset fslspcs={}, pspd={}",
+                hcfg.fslspcs(),
+                hprt.pspd()
+            );
             self.regs.hcfg().modify(|w| {
                 // [CherryUSB] Align clock for Full-speed/Low-speed
                 w.set_fslspcs(hprt.pspd());
             });
             // FIXME: Required after fslspcs change [RM0390]
-            // self.bus_reset().await;
+            //self.bus_reset().await;
         }
 
         self.init_fifo();
@@ -989,8 +1016,8 @@ impl UsbHostDriver for UsbHostBus {
             // FIXME: this is not reliable
             if hprt.pcsts() && !self.dev_conn.load(core::sync::atomic::Ordering::Relaxed) {
                 // NOTE: de-bounce skipped here; could be done interrupt poll
-                // crate::rom::ets_delay_us(30_000);
-                // let hprt = self.regs.hprt().read();
+                //crate::rom::ets_delay_us(30_000);
+                //let hprt = self.regs.hprt().read();
                 if hprt.pcsts() {
                     let speed = match hprt.pspd() {
                         0 => embassy_usb_driver::Speed::High,
