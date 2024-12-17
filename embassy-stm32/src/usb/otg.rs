@@ -1,3 +1,5 @@
+mod otg_host;
+
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, Peripheral};
@@ -15,6 +17,7 @@ use crate::gpio::{AfType, OutputType, Speed};
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::{self, RccPeripheral};
+pub use otg_host::*;
 
 const MAX_EP_COUNT: usize = 9;
 
@@ -90,6 +93,28 @@ impl<'d, T: Instance> Driver<'d, T> {
         Self {
             inner: OtgDriver::new(ep_out_buffer, instance, config),
             phantom: PhantomData,
+        }
+    }
+
+    pub fn new_fs_host(
+        _peri: impl Peripheral<P = T> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, UsbHostInterruptHandler<T>> + 'd,
+        dp: impl Peripheral<P = impl DpPin<T>> + 'd,
+        dm: impl Peripheral<P = impl DmPin<T>> + 'd,
+    ) -> UsbHost {
+        into_ref!(dp, dm);
+
+        dp.set_as_af(dp.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        dm.set_as_af(dm.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+
+        super::common_init::<T>();
+
+        let regs = T::regs();
+        let core_id = regs.cid().read().0;
+        trace!("Core id {:08x}", core_id);
+
+        UsbHost {
+            bus: UsbHostBus::new(regs),
         }
     }
 

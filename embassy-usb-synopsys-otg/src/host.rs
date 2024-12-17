@@ -799,8 +799,9 @@ impl UsbHostBus {
         });
 
         trace!("Post init: {}", otg.gintsts().read().0);
+
         // Clear all interrupts
-        // otg.gintsts().modify(|w| w.0 &= !(GINTST_RES_MASK));
+        otg.gintsts().modify(|w| w.0 &= !(GINTST_RES_MASK));
 
         bus
     }
