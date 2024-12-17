@@ -25,6 +25,7 @@ pub struct UsbHostInterruptHandler<T: Instance> {
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for UsbHostInterruptHandler<T> {
     unsafe fn on_interrupt() {
         let regs = T::regs();
+        warn!("USB HOST IRQ");
         UsbHostBus::on_interrupt_or_poll(regs);
     }
 }
@@ -68,4 +69,10 @@ impl<'d, T: Instance> UsbHost<'d, T> {
             bus,
         }
     }
+
+    /*
+    pub fn poll(&mut self) {
+        UsbHostBus::on_interrupt_or_poll(self.otg.regs);
+    }
+    */
 }

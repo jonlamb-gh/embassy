@@ -739,6 +739,16 @@ impl UsbHostBus {
         // Wait for AHB ready.
         while !otg.grstctl().read().ahbidl() {}
 
+        otg.hcfg().modify(|w| {
+            w.set_fslspcs(1 /*Speed::FULL_SPEED*/);
+            w.set_fslss(true);
+        });
+
+        // Perform core soft-reset
+        otg.grstctl().modify(|w| w.set_csrst(true));
+        while otg.grstctl().read().csrst() {}
+        while !otg.grstctl().read().ahbidl() {}
+
         // Register which are not cleared by a soft-reset:
         otg.gusbcfg().modify(|w| {
             w.set_fhmod(true); // Force host mode
@@ -751,10 +761,9 @@ impl UsbHostBus {
             w.set_tocal(7); // Maximum timeout calibration
         });
 
-        // Perform core soft-reset
-        otg.grstctl().modify(|w| w.set_csrst(true));
-        while otg.grstctl().read().csrst() {}
-        while !otg.grstctl().read().ahbidl() {}
+        // Wait for the current mode of operation to be host mode
+        while otg.gintsts().read().cmod() == false {}
+        trace!("Host mode");
 
         let bus = UsbHostBus {
             regs: otg,
@@ -788,6 +797,21 @@ impl UsbHostBus {
             w.set_vbden(false); // TODO driver.inner.config.vbus_detection
         });
 
+        // TODO force A/B?
+        /*
+        // Force B-peripheral session
+          r.gotgctl().modify(|w: &mut Gotgctl| {
+              w.set_bvaloen(val: !self.config.vbus_detection);
+              w.set_bvaloval(val: true);
+          });
+        */
+        /*
+        otg.gotgctl().modify(|w| {
+            w.set_avaloen(true);
+            w.set_avaloval(true);
+        });
+        */
+
         otg.pcgcctl().modify(|w| {
             // Disable power down
             w.set_stppclk(false);
@@ -795,10 +819,28 @@ impl UsbHostBus {
 
         // Setup core interrupts
         otg.gintmsk().modify(|w| {
-            w.set_discint(true);
+            //w.set_discint(true);
+            //w.set_prtim(true);
+            //w.set_hcim(true);
+            //w.set_usbrst(true);
+
+            // Host port interrupt
             w.set_prtim(true);
+            // Receive FIFO non-empty
+            //w.set_rxflvlm(true);
+            // Host channels
             w.set_hcim(true);
-            // w.set_usbrst(true);
+            // Disconnected
+            w.set_discint(true);
+            // Incomplete periodic transfer mask
+            //w.set_ipxfrm_iisooxfrm(true);
+            //
+            //TODO
+            //OTG_GINTMSK
+            //HPRTINT
+            //OTG
+            w.set_otgint(true);
+            w.set_prtim(true);
         });
 
         otg.gahbcfg().modify(|w| {
@@ -809,13 +851,18 @@ impl UsbHostBus {
 
         otg.hprt().modify(|w| {
             w.0 &= !HPRT_W1C_MASK;
+            // Vbus power
             w.set_ppwr(true);
         });
+
+        // Wait for device?
 
         trace!("Post init: {}", otg.gintsts().read().0);
 
         // Clear all interrupts
         otg.gintsts().modify(|w| w.0 &= !(GINTST_RES_MASK));
+
+        trace!("Post clear: {}", otg.gintsts().read().0);
 
         bus
     }
@@ -895,6 +942,7 @@ impl UsbHostBus {
     }
 
     fn set_port_defaults(&self) {
+        trace!("Set port defaults");
         // Not using descriptor DMA mode
         self.regs.hcfg().modify(|w| {
             w.set_descdma(false);
@@ -918,7 +966,11 @@ impl UsbHostBus {
         });
         let hcfg = self.regs.hcfg().read();
         if hcfg.fslspcs() != hprt.pspd() {
-            warn!("Changed FSLSPCS, would require bus reset");
+            warn!(
+                "Changed FSLSPCS, would require bus reset fslspcs={}, pspd={}",
+                hcfg.fslspcs(),
+                hprt.pspd()
+            );
             self.regs.hcfg().modify(|w| {
                 // [CherryUSB] Align clock for Full-speed/Low-speed
                 w.set_fslspcs(hprt.pspd());
