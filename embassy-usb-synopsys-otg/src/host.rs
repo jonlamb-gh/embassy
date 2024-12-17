@@ -745,7 +745,8 @@ impl UsbHostBus {
             w.set_fdmod(false); // Deassert device mode
             w.set_srpcap(false);
             w.set_hnpcap(false);
-            w.set_physel(true);
+            //w.set_physel(true);
+            w.set_physel(false); // External HS PHY
             w.set_trdt(5); // Maximum
             w.set_tocal(7); // Maximum timeout calibration
         });
@@ -765,13 +766,26 @@ impl UsbHostBus {
         trace!("Post fifo-init: {}", otg.gintsts().read().0);
 
         // F429-like chips have the GCCFG.NOVBUSSENS bit
+        /*
         otg.gccfg_v1().modify(|w| {
             // Enable internal full-speed PHY, logic is inverted
             w.set_pwrdwn(true);
+            w.set_pwrdwn(false);
             w.set_novbussens(true);
             w.set_vbusasen(false);
             w.set_vbusbsen(false);
             w.set_sofouten(true); // SOF host frames
+        });
+        */
+
+        otg.gccfg_v2().modify(|w| {
+            // Disable internal full-speed PHY, logic is inverted
+            w.set_pwrdwn(false);
+            //w.set_phyhsen(true); // TODO i don't see this bit in the OTG_GCCFG reg??
+        });
+
+        otg.gccfg_v2().modify(|w| {
+            w.set_vbden(false); // TODO driver.inner.config.vbus_detection
         });
 
         otg.pcgcctl().modify(|w| {
@@ -799,8 +813,9 @@ impl UsbHostBus {
         });
 
         trace!("Post init: {}", otg.gintsts().read().0);
+
         // Clear all interrupts
-        // otg.gintsts().modify(|w| w.0 &= !(GINTST_RES_MASK));
+        otg.gintsts().modify(|w| w.0 &= !(GINTST_RES_MASK));
 
         bus
     }

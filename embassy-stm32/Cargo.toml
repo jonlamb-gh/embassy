@@ -123,6 +123,7 @@ defmt = [
 ]
 
 usbhost = ["embassy-usb-synopsys-otg/usbhost"]
+otg-fifo-1024 = ["embassy-usb-synopsys-otg/otg-fifo-1024"]
 
 exti = []
 low-power = [ "dep:embassy-executor", "embassy-executor?/arch-cortex-m", "time" ]
